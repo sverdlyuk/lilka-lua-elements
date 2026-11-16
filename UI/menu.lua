@@ -26,6 +26,9 @@ local FONT_SMALL = "6x13"
 local CHAR_BIG = 10
 local CHAR_SMALL = 6
 local ROW_H = 24
+local MARQUEE_SPEED = 30
+local MARQUEE_START_PAUSE = 1.0
+local MARQUEE_END_PAUSE = 0.7
 
 local BLACK = display.color565(0, 0, 0)
 local WHITE = display.color565(255, 255, 255)
@@ -63,7 +66,7 @@ end
 -- --- Курсор і прокрутка -----------------------------------------------------
 
 function menu.new_list()
-    return {cursor = 1, scroll = 0}
+    return {cursor = 1, scroll = 0, marquee_started = util.time()}
 end
 
 -- Рухає курсор і, якщо він сховався за краєм екрана, підкручує прокрутку.
@@ -73,12 +76,26 @@ function menu.move(list, count, step)
     list.cursor = list.cursor + step
     if list.cursor < 1 then list.cursor = count end
     if list.cursor > count then list.cursor = 1 end
+    list.marquee_started = util.time()
 
     if list.cursor - 1 < list.scroll then
         list.scroll = list.cursor - 1
     elseif list.cursor > list.scroll + menu.rows then
         list.scroll = list.cursor - menu.rows
     end
+end
+
+local function marquee_shift(list, overflow)
+    if overflow <= 0 then return 0 end
+
+    local move_time = overflow / MARQUEE_SPEED
+    local cycle_time = MARQUEE_START_PAUSE + move_time + MARQUEE_END_PAUSE
+    local elapsed = util.time() - list.marquee_started
+    local phase = elapsed % cycle_time
+
+    if phase < MARQUEE_START_PAUSE then return 0 end
+    if phase >= MARQUEE_START_PAUSE + move_time then return overflow end
+    return math.floor((phase - MARQUEE_START_PAUSE) * MARQUEE_SPEED)
 end
 
 -- --- Малювання --------------------------------------------------------------
@@ -129,20 +146,33 @@ function menu.draw_list(title, hint, items, list, highlight)
             end
 
             display.set_font(FONT_BIG)
-            display.set_cursor(menu.PAD_X, y)
+
+            local label_width = display.width - menu.PAD_X * 2
+            if item.right then
+                label_width = label_width - text_width(item.right, CHAR_SMALL) - 12
+            end
+            if label_width < CHAR_BIG then label_width = CHAR_BIG end
+
+            local overflow = text_width(item.label, CHAR_BIG) - label_width
+            local shift = selected and marquee_shift(list, overflow) or 0
+
+            display.set_text_bound(menu.PAD_X, y - 18, label_width, ROW_H)
+            display.set_cursor(menu.PAD_X - shift, y)
             display.print(item.label)
 
             if item.right then
                 display.set_font(FONT_SMALL)
                 display.set_text_color(selected and WHITE or DIM_RIGHT)
-                display.set_cursor(
-                    display.width - menu.PAD_X - text_width(item.right, CHAR_SMALL),
-                    y - 2
-                )
+                local right_width = text_width(item.right, CHAR_SMALL)
+                local right_x = display.width - menu.PAD_X - right_width
+                display.set_text_bound(right_x, y - 18, right_width, ROW_H)
+                display.set_cursor(right_x, y - 2)
                 display.print(item.right)
             end
         end
     end
+
+    display.set_text_bound(0, 0, display.width, display.height)
 end
 
 -- buttons — масив {key = "A", label = "Надіслати"}
